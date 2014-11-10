@@ -4,6 +4,8 @@ CHANGELOG
 2.0.10:
 -------
 
+- [improvement] Add connection heartbeat (JAVA-533).
+
 
 2.0.9:
 ------
