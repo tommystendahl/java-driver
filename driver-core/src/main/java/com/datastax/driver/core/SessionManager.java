@@ -545,6 +545,12 @@ class SessionManager extends AbstractSession {
         return future;
     }
 
+    void cleanupIdleConnections(long now) {
+        for (HostConnectionPool pool : pools.values()) {
+            pool.cleanupIdleConnections(now);
+        }
+    }
+
     private static class State implements Session.State {
 
         private final SessionManager session;
