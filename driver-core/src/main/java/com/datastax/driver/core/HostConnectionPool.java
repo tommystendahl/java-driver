@@ -260,6 +260,8 @@ class HostConnectionPool {
     }
 
     public void returnConnection(PooledConnection connection) {
+        int inFlight = connection.inFlight.decrementAndGet();
+
         if (isClosed()) {
             close(connection);
             return;
@@ -270,9 +272,7 @@ class HostConnectionPool {
             // closed the pool.
             return;
         }
-
-        int inFlight = connection.inFlight.decrementAndGet();
-
+        
         if (trash.contains(connection)) {
             if (inFlight == 0 && trash.remove(connection))
                 close(connection);
