@@ -51,8 +51,8 @@ public class PoolingOptions {
     private static final int DEFAULT_MIN_REQUESTS = 25;
     private static final int DEFAULT_MAX_REQUESTS = 100;
 
-    private static final int DEFAULT_CORE_POOL_LOCAL = 8;
-    private static final int DEFAULT_CORE_POOL_REMOTE = 2;
+    private static final int DEFAULT_CORE_POOL_LOCAL = 2;
+    private static final int DEFAULT_CORE_POOL_REMOTE = 1;
 
     private static final int DEFAULT_MAX_POOL_LOCAL = 8;
     private static final int DEFAULT_MAX_POOL_REMOTE = 2;
