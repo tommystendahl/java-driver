@@ -55,7 +55,7 @@ class HostConnectionPool {
 
     final List<PooledConnection> connections;
     private final AtomicInteger open;
-    private final Set<PooledConnection> trash = new CopyOnWriteArraySet<PooledConnection>();
+    final Set<PooledConnection> trash = new CopyOnWriteArraySet<PooledConnection>();
 
     private volatile int waiter = 0;
     private final Lock waitLock = new ReentrantLock(true);
@@ -312,6 +312,7 @@ class HostConnectionPool {
             if (open.compareAndSet(opened, opened - 1))
                 break;
         }
+        logger.trace("Trashing {}", connection);
         connection.maxIdleTime = System.currentTimeMillis() + options().getIdleTimeoutSeconds() * 1000;
         doTrashConnection(connection);
         return true;
@@ -377,6 +378,7 @@ class HostConnectionPool {
         long now = System.currentTimeMillis();
         for (PooledConnection connection : trash)
             if (connection.maxIdleTime >= now && connection.state.compareAndSet(TRASHED, OPEN)) {
+                logger.trace("Resurrecting {}", connection);
                 trash.remove(connection);
                 return connection;
             }
@@ -410,9 +412,10 @@ class HostConnectionPool {
     }
 
     void cleanupIdleConnections(long now) {
-        for (PooledConnection connection : trash)
+        for (PooledConnection connection : trash) {
             if (connection.maxIdleTime < now && connection.state.compareAndSet(TRASHED, GONE)) {
                 if (connection.inFlight.get() == 0) {
+                    logger.trace("Cleaning up {}", connection);
                     trash.remove(connection);
                     close(connection);
                 } else {
@@ -422,6 +425,7 @@ class HostConnectionPool {
                     connection.state.set(TRASHED);
                 }
             }
+        }
     }
 
     private void close(final Connection connection) {
