@@ -461,7 +461,8 @@ class HostConnectionPool {
         if (connections == null)
             return Lists.newArrayList(CloseFuture.immediateFuture());
 
-        List<CloseFuture> futures = new ArrayList<CloseFuture>(connections.size());
+        List<CloseFuture> futures = new ArrayList<CloseFuture>(connections.size() + trash.size());
+
         for (final PooledConnection connection : connections) {
             CloseFuture future = connection.closeAsync();
             future.addListener(new Runnable() {
@@ -472,6 +473,11 @@ class HostConnectionPool {
             }, MoreExecutors.sameThreadExecutor());
             futures.add(future);
         }
+
+        // Some connections in the trash might still be open if they hadn't reached their idle timeout
+        for (PooledConnection connection : trash)
+            futures.add(connection.closeAsync());
+
         return futures;
     }
 
