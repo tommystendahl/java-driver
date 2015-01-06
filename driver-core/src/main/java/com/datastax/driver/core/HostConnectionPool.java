@@ -275,7 +275,7 @@ class HostConnectionPool {
             return;
         }
 
-        if (!trash.contains(connection)) {
+        if (connection.state.get() != TRASHED) {
             if (connections.size() > options().getCoreConnectionsPerHost(hostDistance) && inFlight <= options().getMinSimultaneousRequestsPerConnectionThreshold(hostDistance)) {
                 trashConnection(connection);
             } else if (connection.maxAvailableStreams() < MIN_AVAILABLE_STREAMS) {
