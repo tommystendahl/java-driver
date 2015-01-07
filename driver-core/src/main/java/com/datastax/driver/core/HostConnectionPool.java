@@ -346,6 +346,14 @@ class HostConnectionPool {
             if (newConnection == null)
                 newConnection = manager.connectionFactory().open(this);
             connections.add(newConnection);
+
+            // We might have raced with pool shutdown since the last check; ensure the connection gets closed in case the pool did not do it.
+            if (isClosed() && !newConnection.isClosed()) {
+                close(newConnection);
+                open.decrementAndGet();
+                return false;
+            }
+
             signalAvailableConnection();
             return true;
         } catch (InterruptedException e) {

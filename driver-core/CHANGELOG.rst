@@ -5,6 +5,7 @@ CHANGELOG
 -------
 
 - [improvement] Add idle timeout to the connection pool (JAVA-419)
+- [bug] Fix race condition between pool expansion and shutdown (JAVA-599)
 
 
 2.0.9:
