@@ -4,6 +4,8 @@ CHANGELOG
 2.0.10:
 -------
 
+- [improvement] Add idle timeout to the connection pool (JAVA-419)
+
 
 2.0.9:
 ------
