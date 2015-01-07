@@ -1173,6 +1173,13 @@ public class BoundStatement extends Statement implements SettableData<BoundState
     /**
      * {@inheritDoc}
      */
+    public <T> List<T> getList(String name, TypeToken<T> elementsType) {
+        return wrapper.getList(name, elementsType);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public <T> Set<T> getSet(int i, Class<T> elementsClass) {
         return wrapper.getSet(i, elementsClass);
     }
@@ -1194,6 +1201,13 @@ public class BoundStatement extends Statement implements SettableData<BoundState
     /**
      * {@inheritDoc}
      */
+    public <T> Set<T> getSet(String name, TypeToken<T> elementsType) {
+        return wrapper.getSet(name, elementsType);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public <K, V> Map<K, V> getMap(int i, Class<K> keysClass, Class<V> valuesClass) {
         return wrapper.getMap(i, keysClass, valuesClass);
     }
@@ -1202,7 +1216,7 @@ public class BoundStatement extends Statement implements SettableData<BoundState
      * {@inheritDoc}
      */
     public <K, V> Map<K, V> getMap(int i, TypeToken<K> keysType, TypeToken<V> valuesType) {
-        return getMap(i, keysType, valuesType);
+        return wrapper.getMap(i, keysType, valuesType);
     }
 
     /**
@@ -1210,6 +1224,13 @@ public class BoundStatement extends Statement implements SettableData<BoundState
      */
     public <K, V> Map<K, V> getMap(String name, Class<K> keysClass, Class<V> valuesClass) {
         return wrapper.getMap(name, keysClass, valuesClass);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public <K, V> Map<K, V> getMap(String name, TypeToken<K> keysType, TypeToken<V> valuesType) {
+        return wrapper.getMap(name, keysType, valuesType);
     }
 
     /**

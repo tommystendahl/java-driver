@@ -287,7 +287,7 @@ public interface GettableByIndexData {
     /**
      * Returns the {@code i}th value as a map.
      * <p>
-     * If the type of the key and/or value is generic, use {@link #getMap(int, TypeToken, TypeToken)}.
+     * If the type of the keys and/or values is generic, use {@link #getMap(int, TypeToken, TypeToken)}.
      *
      * @param i the index ({@code 0 <= i < size()}) to retrieve.
      * @param keysClass the class for the keys of the map to retrieve.
