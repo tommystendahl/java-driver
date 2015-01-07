@@ -19,6 +19,7 @@ import java.util.*;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
+import com.google.common.reflect.TypeToken;
 
 import com.datastax.driver.core.exceptions.InvalidTypeException;
 
@@ -164,6 +165,11 @@ public class UserType extends DataType implements Iterable<UserType.Field>{
             throw new IllegalArgumentException(name + " is not a field defined in this definition");
 
         return byIdx[idx[0]].getType();
+    }
+
+    @Override
+    boolean canBeDeserializedAs(TypeToken typeToken) {
+        return typeToken.isAssignableFrom(getName().javaType);
     }
 
     @Override

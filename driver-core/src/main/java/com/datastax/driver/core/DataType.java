@@ -24,6 +24,7 @@ import java.util.*;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.reflect.TypeToken;
 import org.jboss.netty.buffer.ChannelBuffer;
 
 import com.datastax.driver.core.exceptions.DriverInternalError;
@@ -163,26 +164,6 @@ public abstract class DataType {
 
     protected DataType(DataType.Name name) {
         this.name = name;
-    }
-
-
-    /**
-     * Returns whether this data type is frozen.
-     * <p>
-     * This applies to User Defined Types, tuples and nested collections. Frozen types are serialized as a single value in
-     * Cassandra's storage engine, whereas non-frozen types are stored in a form that allows updates to individual subfields.
-     *
-     * @return whether this data type is frozen.
-     */
-    public boolean isFrozen() {
-        // With Cassandra 2.1.0, this is straightforward; in future versions, "frozenness" will be stored in the database.
-        switch (name) {
-            case UDT:
-            case TUPLE:
-                return true;
-            default:
-                return false;
-        }
     }
 
     static DataType decode(ChannelBuffer buffer) {
@@ -434,6 +415,25 @@ public abstract class DataType {
     }
 
     /**
+     * Returns whether this data type is frozen.
+     * <p>
+     * This applies to User Defined Types, tuples and nested collections. Frozen types are serialized as a single value in
+     * Cassandra's storage engine, whereas non-frozen types are stored in a form that allows updates to individual subfields.
+     *
+     * @return whether this data type is frozen.
+     */
+    public boolean isFrozen() {
+        // With Cassandra 2.1.0, this is straightforward; in future versions, "frozenness" will be stored in the database.
+        switch (name) {
+            case UDT:
+            case TUPLE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
      * Returns the type arguments of this type.
      * <p>
      * Note that only the collection types (LIST, MAP, SET) have type
@@ -453,6 +453,8 @@ public abstract class DataType {
     public List<DataType> getTypeArguments() {
         return Collections.<DataType>emptyList();
     }
+
+    abstract boolean canBeDeserializedAs(TypeToken typeToken);
 
     /**
      * Returns the server-side class name for a custom type.
@@ -694,6 +696,11 @@ public abstract class DataType {
         }
 
         @Override
+        boolean canBeDeserializedAs(TypeToken typeToken) {
+            return typeToken.isAssignableFrom(getName().javaType);
+        }
+
+        @Override
         TypeCodec<Object> codec(ProtocolVersion protocolVersion) {
             return TypeCodec.createFor(name);
         }
@@ -729,6 +736,24 @@ public abstract class DataType {
         private Collection(DataType.Name name, List<DataType> typeArguments) {
             super(name);
             this.typeArguments = typeArguments;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        boolean canBeDeserializedAs(TypeToken typeToken) {
+            switch (name) {
+                case LIST:
+                    return typeToken.getRawType().isAssignableFrom(List.class) &&
+                        typeArguments.get(0).canBeDeserializedAs(typeToken.resolveType(typeToken.getRawType().getTypeParameters()[0]));
+                case SET:
+                    return typeToken.getRawType().isAssignableFrom(Set.class) &&
+                        typeArguments.get(0).canBeDeserializedAs(typeToken.resolveType(typeToken.getRawType().getTypeParameters()[0]));
+                case MAP:
+                    return typeToken.getRawType().isAssignableFrom(Map.class) &&
+                        typeArguments.get(0).canBeDeserializedAs(typeToken.resolveType(typeToken.getRawType().getTypeParameters()[0])) &&
+                        typeArguments.get(1).canBeDeserializedAs(typeToken.resolveType(typeToken.getRawType().getTypeParameters()[1]));
+            }
+            throw new AssertionError();
         }
 
         @SuppressWarnings("unchecked")
@@ -778,6 +803,11 @@ public abstract class DataType {
         private Custom(DataType.Name name, String className) {
             super(name);
             this.customClassName = className;
+        }
+
+        @Override
+        boolean canBeDeserializedAs(TypeToken typeToken) {
+            return typeToken.getRawType().getName().equals(customClassName);
         }
 
         @SuppressWarnings("unchecked")

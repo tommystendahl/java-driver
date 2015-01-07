@@ -18,6 +18,7 @@ package com.datastax.driver.core;
 import java.util.*;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.reflect.TypeToken;
 
 import com.datastax.driver.core.exceptions.InvalidTypeException;
 
@@ -97,6 +98,11 @@ public class TupleType extends DataType {
         for (int i = 0; i < values.length; i++)
             t.setValue(i, values[i] == null ? null : types.get(i).serialize(values[i], ProtocolVersion.V3));
         return t;
+    }
+
+    @Override
+    boolean canBeDeserializedAs(TypeToken typeToken) {
+        return typeToken.isAssignableFrom(getName().javaType);
     }
 
     @Override
