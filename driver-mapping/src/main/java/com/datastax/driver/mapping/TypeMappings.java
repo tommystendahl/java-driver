@@ -23,6 +23,9 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import com.datastax.driver.core.DataType;
+import com.datastax.driver.core.TupleValue;
+import com.datastax.driver.core.UDTValue;
+import com.datastax.driver.mapping.annotations.UDT;
 
 /**
  * Utility methods to determine which CQL type we expect for a given Java field type.
@@ -74,5 +77,19 @@ class TypeMappings {
 
     static boolean mapsToMap(Class<?> klass) {
         return Map.class.equals(klass);
+    }
+
+    static boolean mapsToCollection(Class<?> klass) {
+        return mapsToList(klass) || mapsToSet(klass) || mapsToMap(klass);
+    }
+
+    static boolean isMappedUDT(Class<?> klass) {
+        return klass.isAnnotationPresent(UDT.class);
+    }
+
+    static boolean mapsToUserTypeOrTuple(Class<?> klass) {
+        return isMappedUDT(klass) ||
+            klass.equals(UDTValue.class) ||
+            klass.equals(TupleValue.class);
     }
 }

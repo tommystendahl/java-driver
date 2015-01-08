@@ -25,8 +25,6 @@ import java.util.*;
 
 import com.datastax.driver.core.*;
 
-import com.datastax.driver.mapping.annotations.UDT;
-
 /**
  * An {@link EntityMapper} implementation that use reflection to read and write fields
  * of an entity.
@@ -162,95 +160,100 @@ class ReflectionMapper<T> extends EntityMapper<T> {
         }
     }
 
-    private static class UDTListMapper<T, V> extends LiteralMapper<T> {
+    private static class NestedUDTMapper<T> extends LiteralMapper<T> {
+        private final ExtractedType extractedType;
 
-        private final UDTMapper<V> valueMapper;
-
-        UDTListMapper(Field field, int position, PropertyDescriptor pd, UDTMapper<V> valueMapper) {
-            super(field, DataType.list(valueMapper.getUserType()), position, pd);
-            this.valueMapper = valueMapper;
-        }
-
-        @Override
-        public Object getValue(T entity) {
-            @SuppressWarnings("unchecked")
-            List<V> entities = (List<V>) super.getValue(entity);
-            return valueMapper.toUDTValues(entities);
-        }
-
-        @Override
-        public void setValue(Object entity, Object value) {
-            @SuppressWarnings("unchecked")
-            List<UDTValue> udtValues = (List<UDTValue>) value;
-            super.setValue(entity, valueMapper.toEntities(udtValues));
-        }
-    }
-
-    private static class UDTSetMapper<T, V> extends LiteralMapper<T> {
-
-        private final UDTMapper<V> valueMapper;
-
-        UDTSetMapper(Field field, int position, PropertyDescriptor pd, UDTMapper<V> valueMapper) {
-            super(field, DataType.set(valueMapper.getUserType()), position, pd);
-            this.valueMapper = valueMapper;
-        }
-
-        @Override
-        public Object getValue(T entity) {
-            @SuppressWarnings("unchecked")
-            Set<V> entities = (Set<V>) super.getValue(entity);
-            return valueMapper.toUDTValues(entities);
-        }
-
-        @Override
-        public void setValue(Object entity, Object value) {
-            @SuppressWarnings("unchecked")
-            Set<UDTValue> udtValues = (Set<UDTValue>) value;
-            super.setValue(entity, valueMapper.toEntities(udtValues));
-        }
-    }
-
-    /**
-     * A map field that contains UDT values.
-     * <p>
-     * UDTs may be used either as keys, or as values, or both. This is reflected
-     * in keyMapper and valueMapper being null or non-null.
-     * </p>
-     */
-    private static class UDTMapMapper<T, K, V> extends LiteralMapper<T> {
-        private final UDTMapper<K> keyMapper;
-        private final UDTMapper<V> valueMapper;
-
-        UDTMapMapper(Field field, int position, PropertyDescriptor pd, UDTMapper<K> keyMapper, UDTMapper<V> valueMapper, Class<?> keyClass, Class<?> valueClass) {
-            super(field, buildDataType(field, keyMapper, valueMapper, keyClass, valueClass), position, pd);
-            this.keyMapper = keyMapper;
-            this.valueMapper = valueMapper;
-        }
-
-        @Override
-        public Object getValue(T entity) {
-            @SuppressWarnings("unchecked")
-            Map<K, V> entities = (Map<K, V>) super.getValue(entity);
-            return UDTMapper.toUDTValues(entities, keyMapper, valueMapper);
+        public NestedUDTMapper(Field field, int position, PropertyDescriptor pd, ExtractedType extractedType) {
+            super(field, extractedType.dataType, position, pd);
+            this.extractedType = extractedType;
         }
 
         @Override
         @SuppressWarnings("unchecked")
-        public void setValue(Object entity, Object fieldValue) {
-            Map<Object, Object> udtValues = (Map<Object, Object>) fieldValue;
-            super.setValue(entity, UDTMapper.toEntities(udtValues, keyMapper, valueMapper));
+        public Object getValue(T entity) {
+            Object valueWithEntities = super.getValue(entity);
+            return (T)convertEntitiesToUDTs(valueWithEntities, extractedType);
         }
 
-        private static <K, V> DataType buildDataType(Field field, UDTMapper<K> keyMapper, UDTMapper<V> valueMapper, Class<?> keyClass, Class<?> valueClass) {
-            assert keyMapper != null || valueMapper != null;
+        @Override
+        public void setValue(Object entity, Object valueWithUDTValues) {
+            super.setValue(entity, convertUDTsToEntities(valueWithUDTValues, extractedType));
+        }
 
-            DataType keyType = (keyMapper != null) ?
-                                                  keyMapper.getUserType() :
-                                                  TypeMappings.getSimpleType(keyClass, field);
-            DataType valueType = (valueMapper != null) ?
-                                                  valueMapper.getUserType() :
-                                                  TypeMappings.getSimpleType(valueClass, field);
-            return DataType.map(keyType, valueType);
+        @SuppressWarnings("unchecked")
+        private Object convertEntitiesToUDTs(Object value, ExtractedType type) {
+            if (!type.containsMappedUDT)
+                return value;
+
+            if (type.udtMapper != null)
+                return type.udtMapper.toUDT(value);
+
+            if (type.dataType.getName() == DataType.Name.LIST) {
+                ExtractedType elementType = type.childTypes.get(0);
+                List<Object> result = new ArrayList<Object>();
+                for (Object element : (List<Object>)value)
+                    result.add(convertEntitiesToUDTs(element, elementType));
+                return result;
+            }
+
+            if (type.dataType.getName() == DataType.Name.SET) {
+                ExtractedType elementType = type.childTypes.get(0);
+                Set<Object> result = new LinkedHashSet<Object>();
+                for (Object element : (Set<Object>)value)
+                    result.add(convertEntitiesToUDTs(element, elementType));
+                return result;
+            }
+
+            if (type.dataType.getName() == DataType.Name.MAP) {
+                ExtractedType keyType = type.childTypes.get(0);
+                ExtractedType valueType = type.childTypes.get(1);
+                Map<Object, Object> result = new LinkedHashMap<Object, Object>();
+                for (Map.Entry<Object, Object> entry : ((Map<Object, Object>)value).entrySet())
+                    result.put(
+                        convertEntitiesToUDTs(entry.getKey(), keyType),
+                        convertEntitiesToUDTs(entry.getValue(), valueType)
+                    );
+                return result;
+            }
+            throw new IllegalArgumentException("Error converting " + value);
+        }
+
+        @SuppressWarnings("unchecked")
+        private Object convertUDTsToEntities(Object value, ExtractedType type) {
+            if (!type.containsMappedUDT)
+                return value;
+
+            if (type.udtMapper != null)
+                return type.udtMapper.toEntity((UDTValue)value);
+
+            if (type.dataType.getName() == DataType.Name.LIST) {
+                ExtractedType elementType = type.childTypes.get(0);
+                List<Object> result = new ArrayList<Object>();
+                for (Object element : (List<Object>)value)
+                    result.add(convertUDTsToEntities(element, elementType));
+                return result;
+            }
+
+            if (type.dataType.getName() == DataType.Name.SET) {
+                ExtractedType elementType = type.childTypes.get(0);
+                Set<Object> result = new LinkedHashSet<Object>();
+                for (Object element : (Set<Object>)value)
+                    result.add(convertUDTsToEntities(element, elementType));
+                return result;
+            }
+
+            if (type.dataType.getName() == DataType.Name.MAP) {
+                ExtractedType keyType = type.childTypes.get(0);
+                ExtractedType valueType = type.childTypes.get(1);
+                Map<Object, Object> result = new LinkedHashMap<Object, Object>();
+                for (Map.Entry<Object, Object> entry : ((Map<Object, Object>)value).entrySet())
+                    result.put(
+                        convertUDTsToEntities(entry.getKey(), keyType),
+                        convertUDTsToEntities(entry.getValue(), valueType)
+                    );
+                return result;
+            }
+            throw new IllegalArgumentException("Error converting " + value);
         }
     }
 
@@ -298,35 +301,19 @@ class ReflectionMapper<T> extends EntityMapper<T> {
                     return new EnumMapper<T>(field, position, pd, AnnotationParser.enumType(field));
                 }
 
-                if (field.getType().isAnnotationPresent(UDT.class)) {
+                if (TypeMappings.isMappedUDT(field.getType())) {
                     UDTMapper<?> udtMapper = mappingManager.getUDTMapper(field.getType());
                     return (ColumnMapper<T>) new UDTColumnMapper(field, position, pd, udtMapper);
                 }
 
                 if (field.getGenericType() instanceof ParameterizedType) {
-                    ParameterizedType pt = (ParameterizedType) field.getGenericType();
-                    Type raw = pt.getRawType();
-                    if (!(raw instanceof Class))
-                        throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", field, field.getName()));
-
-                    Class<?> klass = (Class<?>)raw;
-                    Class<?> firstTypeParam = ReflectionUtils.getParam(pt, 0, field.getName());
-                    if (TypeMappings.mapsToList(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
-                        UDTMapper<?> valueMapper = mappingManager.getUDTMapper(firstTypeParam);
-                        return (ColumnMapper<T>) new UDTListMapper(field, position, pd, valueMapper);
-                    }
-                    if (TypeMappings.mapsToSet(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
-                        UDTMapper<?> valueMapper = mappingManager.getUDTMapper(firstTypeParam);
-                        return (ColumnMapper<T>) new UDTSetMapper(field, position, pd, valueMapper);
-                    }
-                    if (TypeMappings.mapsToMap(klass)) {
-                        Class<?> secondTypeParam = ReflectionUtils.getParam(pt, 1, field.getName());
-                        UDTMapper<?> keyMapper = firstTypeParam.isAnnotationPresent(UDT.class) ? mappingManager.getUDTMapper(firstTypeParam) : null;
-                        UDTMapper<?> valueMapper = secondTypeParam.isAnnotationPresent(UDT.class) ? mappingManager.getUDTMapper(secondTypeParam) : null;
-
-                        if (keyMapper != null || valueMapper != null) {
-                            return (ColumnMapper<T>) new UDTMapMapper(field, position, pd, keyMapper, valueMapper, firstTypeParam, secondTypeParam);
-                        }
+                    ExtractedType extractedType = new ExtractedType(field.getGenericType(), field, mappingManager);
+                    if (extractedType.containsMappedUDT) {
+                        // We need a specialized mapper to convert UDT instances in the hierarchy.
+                        return (ColumnMapper<T>)new NestedUDTMapper(field, position, pd, extractedType);
+                    } else {
+                        // The default codecs will know how to handle the extracted datatype.
+                        return new LiteralMapper<T>(field, extractedType.dataType, position, pd);
                     }
                 }
 
