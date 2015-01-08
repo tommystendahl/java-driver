@@ -37,18 +37,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class DataTypeIntegrationTest extends CCMBridge.PerClassSingleNodeCluster {
 
-    // TODO refactor tests that depend on that and remove
-    @Deprecated
-    static HashMap<DataType, Object> getSampleData() {
-        return null;
-    }
-
-    // TODO refactor tests that depend on that and remove
-    @Deprecated
-    public static Object getCollectionSample(DataType.Name name, DataType dataType) {
-        return null;
-    }
-
     @Override
     protected Collection<String> getTableDefinitions() {
         // Tables are created on the fly in the test method.
