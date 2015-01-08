@@ -18,7 +18,10 @@ package com.datastax.driver.core;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import com.google.common.collect.*;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.testng.annotations.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,6 +100,7 @@ public class DataTypeIntegrationTest extends CCMBridge.PerClassSingleNodeCluster
         tables.addAll(tablesWithPrimitives());
         tables.addAll(tablesWithCollectionsOfPrimitives());
         tables.addAll(tablesWithMapsOfPrimitives());
+        tables.addAll(tablesWithNestedCollections());
 
         return ImmutableList.copyOf(tables);
     }
@@ -130,9 +134,39 @@ public class DataTypeIntegrationTest extends CCMBridge.PerClassSingleNodeCluster
                 DataType valueType = valueEntry.getKey();
                 Object valueSample = valueEntry.getValue();
 
-                Map<Object, Object> mapSample = Maps.newHashMap();
-                mapSample.put(keySample, valueSample);
-                tables.add(new TestTable(DataType.map(keyType, valueType), mapSample));
+                tables.add(new TestTable(DataType.map(keyType, valueType),
+                    ImmutableMap.builder().put(keySample, valueSample).build()));
+            }
+        }
+        return tables;
+    }
+
+    private static Collection<? extends TestTable> tablesWithNestedCollections() {
+        List<TestTable> tables = Lists.newArrayList();
+
+        // To avoid combinatorial explosion, only use int as the primitive type, and two levels of nesting.
+        // This yields collections like list<frozen<map<int, int>>, map<frozen<set<int>>, frozen<list<int>>>, etc.
+
+        // Types and samples for the inner collections like frozen<list<int>>
+        Map<DataType, Object> childCollectionSamples = ImmutableMap.<DataType, Object>builder()
+            .put(DataType.frozenList(DataType.cint()), Lists.newArrayList(1, 1))
+            .put(DataType.frozenSet(DataType.cint()), Sets.newHashSet(1, 2))
+            .put(DataType.frozenMap(DataType.cint(), DataType.cint()), ImmutableMap.<Integer, Integer>builder().put(1, 2).put(3, 4).build())
+            .build();
+
+        for (Map.Entry<DataType, Object> entry : childCollectionSamples.entrySet()) {
+            DataType elementType = entry.getKey();
+            Object elementSample = entry.getValue();
+
+            tables.add(new TestTable(DataType.list(elementType), Lists.newArrayList(elementSample, elementSample)));
+            tables.add(new TestTable(DataType.set(elementType), Sets.newHashSet(elementSample)));
+
+            for (Map.Entry<DataType, Object> valueEntry : childCollectionSamples.entrySet()) {
+                DataType valueType = valueEntry.getKey();
+                Object valueSample = valueEntry.getValue();
+
+                tables.add(new TestTable(DataType.map(elementType, valueType),
+                    ImmutableMap.builder().put(elementSample, valueSample).build()));
             }
         }
         return tables;
