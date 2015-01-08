@@ -101,6 +101,11 @@ public class TupleType extends DataType {
     }
 
     @Override
+    public boolean isFrozen() {
+        return true;
+    }
+
+    @Override
     boolean canBeDeserializedAs(TypeToken typeToken) {
         return typeToken.isAssignableFrom(getName().javaType);
     }

@@ -168,6 +168,11 @@ public class UserType extends DataType implements Iterable<UserType.Field>{
     }
 
     @Override
+    public boolean isFrozen() {
+        return true;
+    }
+
+    @Override
     boolean canBeDeserializedAs(TypeToken typeToken) {
         return typeToken.isAssignableFrom(getName().javaType);
     }
