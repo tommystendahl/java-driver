@@ -15,8 +15,11 @@
  */
 package com.datastax.driver.core;
 
-import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,11 +63,24 @@ public class DataTypeIntegrationTest extends CCMBridge.PerClassSingleNodeCluster
             session.execute(table.createStatement);
             session.execute(table.insertStatement, table.sampleValue);
             Row row = session.execute(table.selectStatement).one();
-            ByteBuffer rawValue = row.getBytesUnsafe("v");
-            Object queriedValue = table.testColumnType.deserialize(rawValue, protocolVersion);
+            Object queriedValue = table.testColumnType.deserialize(row.getBytesUnsafe("v"), protocolVersion);
 
             assertThat(queriedValue)
-                .as("Test failure with table:%n%s;%n" +
+                .as("Test failure on simple statement with table:%n%s;%n" +
+                        "insert statement:%n%s;%n",
+                    table.createStatement,
+                    table.insertStatement)
+                .isEqualTo(table.sampleValue);
+
+            session.execute(table.truncateStatement);
+
+            PreparedStatement ps = session.prepare(table.insertStatement);
+            session.execute(ps.bind(table.sampleValue));
+            row = session.execute(table.selectStatement).one();
+            queriedValue = table.testColumnType.deserialize(row.getBytesUnsafe("v"), protocolVersion);
+
+            assertThat(queriedValue)
+                .as("Test failure on prepared statement with table:%n%s;%n" +
                         "insert statement:%n%s;%n",
                     table.createStatement,
                     table.insertStatement)
@@ -78,19 +94,23 @@ public class DataTypeIntegrationTest extends CCMBridge.PerClassSingleNodeCluster
      * Abstracts information about a table (corresponding to a given column type).
      */
     static class TestTable {
+        private static final AtomicInteger counter = new AtomicInteger();
+        private String tableName = "date_type_test" + counter.incrementAndGet();
+
         final DataType testColumnType;
         final Object sampleValue;
 
         final String createStatement;
-        final String insertStatement = "INSERT INTO data_type_test (k, v) VALUES (1, ?)";
-        final String selectStatement = "SELECT v FROM data_type_test WHERE k = 1";
-        final String dropStatement = "DROP TABLE data_type_test";
+        final String insertStatement = String.format("INSERT INTO %s (k, v) VALUES (1, ?)", tableName);
+        final String selectStatement = String.format("SELECT v FROM %s WHERE k = 1", tableName);
+        final String truncateStatement = String.format("TRUNCATE %s", tableName);
+        final String dropStatement = String.format("DROP TABLE %s", tableName);
 
         TestTable(DataType testColumnType, Object sampleValue) {
             this.testColumnType = testColumnType;
             this.sampleValue = sampleValue;
 
-            this.createStatement = String.format("CREATE TABLE data_type_test (k int PRIMARY KEY, v %s)", testColumnType);
+            this.createStatement = String.format("CREATE TABLE %s (k int PRIMARY KEY, v %s)", tableName, testColumnType);
         }
     }
 
