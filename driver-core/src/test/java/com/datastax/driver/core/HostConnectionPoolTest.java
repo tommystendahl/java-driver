@@ -13,6 +13,8 @@ import com.google.common.collect.Lists;
 import org.testng.annotations.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.testng.Assert.fail;
 
 public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster {
@@ -26,6 +28,12 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         return Lists.newArrayList(sb.toString());
     }
 
+    /**
+     * Ensures that if a fixed-sized pool has filled its core connections that borrowConnection will timeout instead
+     * of creating a new connection.
+     *
+     * @test_category connection:connection_pool
+     */
     @Test(groups = "short")
     public void fixed_size_pool_should_fill_its_core_connections_and_then_timeout() throws ConnectionException, TimeoutException {
         HostConnectionPool pool = createPool(2, 2);
@@ -47,6 +55,45 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         assertThat(timedOut).isTrue();
     }
 
+    /**
+     * Ensures that if a variable-sized pool has filled up to its maximum connections that borrowConnection will
+     * timeout instead of creating a new connection.
+     *
+     * @test_category connection:connection_pool
+     */
+    @Test(groups = "short")
+    public void variable_size_pool_should_fill_its_connections_and_then_timeout() throws ConnectionException, TimeoutException {
+        HostConnectionPool pool = createPool(1, 2);
+
+        assertThat(pool.connections.size()).isEqualTo(1);
+        List<PooledConnection> coreConnections = Lists.newArrayList(pool.connections);
+
+        //
+        for (int i = 0; i < 128; i++) {
+            PooledConnection connection = pool.borrowConnection(100, MILLISECONDS);
+            assertThat(coreConnections).contains(connection);
+        }
+
+        // Borrow more and ensure the connection returned is a non-core connection.
+        for (int i = 0; i < 128; i++) {
+            PooledConnection connection = pool.borrowConnection(100, MILLISECONDS);
+            assertThat(coreConnections).doesNotContain(connection);
+        }
+
+        boolean timedOut = false;
+        try {
+            pool.borrowConnection(100, MILLISECONDS);
+        } catch (TimeoutException e) {
+            timedOut = true;
+        }
+        assertThat(timedOut).isTrue();
+    }
+
+    /**
+     * Ensures that if the core connection pool is full that borrowConnection will create and use a new connection.
+     *
+     * @test_category connection:connection_pool
+     */
     @Test(groups = "short")
     public void should_add_extra_connection_when_core_full() throws ConnectionException, TimeoutException, InterruptedException {
         cluster.getConfiguration().getPoolingOptions()
@@ -83,6 +130,14 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         ).isEqualTo(core);
     }
 
+    /**
+     * Ensures that a trashed connection that has not been timed out should be resurrected into the connection pool if
+     * borrowConnection is called and a new connection is needed.
+     *
+     * @since 2.0.10, 2.1.5
+     * @jira_ticket JAVA-419
+     * @test_category connection:connection_pool
+     */
     @Test(groups = "short")
     public void should_resurrect_trashed_connection_within_idle_timeout() throws ConnectionException, TimeoutException, InterruptedException {
         cluster.getConfiguration().getPoolingOptions()
@@ -112,6 +167,14 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         assertThat(pool.connections).hasSize(2);
     }
 
+    /**
+     * Ensures that a trashed connection that has been timed out should not be resurrected into the connection pool if
+     * borrowConnection is called and a new connection is needed.
+     *
+     * @since 2.0.10, 2.1.5
+     * @jira_ticket JAVA-419
+     * @test_category connection:connection_pool
+     */
     @Test(groups = "long")
     public void should_not_resurrect_trashed_connection_after_idle_timeout() throws ConnectionException, TimeoutException, InterruptedException {
         cluster.getConfiguration().getPoolingOptions()
@@ -142,6 +205,94 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         assertThat(extra1.isClosed()).isTrue();
     }
 
+    /**
+     * Ensures that a trashed connection that has been timed out should not be closed until it has 0 in flight requests.
+     *
+     * @since 2.0.10, 2.1.5
+     * @test_category connection:connection_pool
+     */
+    @Test(groups = "long")
+    public void should_not_close_trashed_connection_until_no_in_flight()
+            throws ConnectionException, TimeoutException, InterruptedException {
+        cluster.getConfiguration().getPoolingOptions()
+                .setIdleTimeoutSeconds(20)
+                .setMinSimultaneousRequestsPerConnectionThreshold(HostDistance.LOCAL, 1)
+                .setMaxConnectionsPerHost(HostDistance.LOCAL, 128);
+
+        HostConnectionPool pool = createPool(1, 2);
+        PooledConnection core = pool.connections.get(0);
+
+        for (int i = 0; i < 128; i++)
+            assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(core);
+
+        TimeUnit.MILLISECONDS.sleep(100);
+        assertThat(pool.connections).hasSize(2);
+        PooledConnection extra1 = pool.connections.get(1);
+
+        // Acquire twice and return 1, this will cause the connection to be put in the trash, but still have an
+        // an in flight request.
+        assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(extra1);
+        assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(extra1);
+        pool.returnConnection(extra1);
+        assertThat(pool.connections).hasSize(1);
+        assertThat(extra1.isClosed()).isFalse();
+
+        // Give enough time for extra1 to potentially be cleaned up from trash, but not be cleaned up since there
+        // is still a request in flight.
+        TimeUnit.SECONDS.sleep(30);
+        assertThat(extra1.isClosed()).isFalse();
+
+        // Return the connection, there should now be no requests in flight, thus the connection can be cleaned
+        // from the trash and closed.
+        pool.returnConnection(extra1);
+
+        TimeUnit.SECONDS.sleep(30);
+
+        // The connection should be now closed.
+        assertThat(extra1.isClosed()).isTrue();
+    }
+
+    /**
+     * Ensures that if a connection that has less than the minimum available stream ids is returned to the pool that
+     * the connection is put in the trash.
+     *
+     * @since 2.0.10, 2.1.5
+     * @test_category connection:connection_pool
+     */
+    @Test(groups = "short")
+    public void should_trash_on_returning_connection_with_insufficient_streams()
+            throws ConnectionException, TimeoutException, InterruptedException {
+        HostConnectionPool pool = createPool(1, 2);
+        PooledConnection core = pool.connections.get(0);
+
+        for (int i = 0; i < 128; i++)
+            assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(core);
+
+        TimeUnit.MILLISECONDS.sleep(100);
+        assertThat(pool.connections).hasSize(2);
+
+        // Grab the new non-core connection and replace it with a spy.
+        PooledConnection extra1 = spy(pool.connections.get(1));
+        pool.connections.set(1, extra1);
+
+        // Borrow 10 times to ensure pool is utilized.
+        for (int i = 0; i < 10; i++) {
+            assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(extra1);
+        }
+
+        // Return connection, it should not be trashed since it still has 9 inflight requests.
+        pool.returnConnection(extra1);
+        assertThat(pool.connections).hasSize(2);
+
+        // stub the maxAvailableStreams method to return 0, indicating there are no remaining streams.
+        // this should cause the connection to be replaced and trashed on returnConnection.
+        doReturn(0).when(extra1).maxAvailableStreams();
+
+        // On returning of the connection, should detect that there are no available streams and trash it.
+        pool.returnConnection(extra1);
+        assertThat(pool.connections).hasSize(1);
+    }
+
     private HostConnectionPool createPool(int coreConnections, int maxConnections) {
         cluster.getConfiguration().getPoolingOptions()
             .setCoreConnectionsPerHost(HostDistance.LOCAL, coreConnections)
@@ -152,14 +303,15 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
     }
 
     /**
-     * Test for #JAVA-349 - Negative openConnection count results in broken connection release.
-     * <p/>
+     * <p>
      * This test uses a table named "Java349" with 1000 column and performs asynchronously 100k insertions. While the
      * insertions are being executed, the number of opened connection is monitored.
      * <p/>
      * If at anytime, the number of opened connections is negative, this test will fail.
      *
-     * @throws InterruptedException
+     * @since 2.0.6, 2.1.1
+     * @jira_ticket JAVA-349
+     * @test_category connection:connection_pool
      */
     @Test(groups = "long", enabled = false /* this test causes timeouts on Jenkins */)
     public void open_connections_metric_should_always_be_positive() throws InterruptedException {
