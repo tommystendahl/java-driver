@@ -15,17 +15,18 @@
  */
 package com.datastax.driver.core;
 
-import java.util.*;
 import java.nio.ByteBuffer;
+import java.util.*;
 
 import com.google.common.base.Joiner;
 import org.testng.annotations.Test;
 
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.fail;
+
 import static com.datastax.driver.core.DataTypeIntegrationTest.getSampleData;
 import static com.datastax.driver.core.TestUtils.SIMPLE_KEYSPACE;
 import static com.datastax.driver.core.TestUtils.versionCheck;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.fail;
 
 public class TupleTest extends CCMBridge.PerClassSingleNodeCluster {
 
