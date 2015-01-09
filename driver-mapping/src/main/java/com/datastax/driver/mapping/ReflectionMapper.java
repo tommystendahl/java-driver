@@ -21,10 +21,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.Method;
-import java.net.InetAddress;
-import java.nio.ByteBuffer;
-import java.math.BigInteger;
-import java.math.BigDecimal;
 import java.util.*;
 
 import com.datastax.driver.core.*;
@@ -250,10 +246,10 @@ class ReflectionMapper<T> extends EntityMapper<T> {
 
             DataType keyType = (keyMapper != null) ?
                                                   keyMapper.getUserType() :
-                                                  getSimpleType(keyClass, field);
+                                                  TypeMappings.getSimpleType(keyClass, field);
             DataType valueType = (valueMapper != null) ?
                                                   valueMapper.getUserType() :
-                                                  getSimpleType(valueClass, field);
+                                                  TypeMappings.getSimpleType(valueClass, field);
             return DataType.map(keyType, valueType);
         }
     }
@@ -268,14 +264,14 @@ class ReflectionMapper<T> extends EntityMapper<T> {
                 throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", type, f.getName()));
 
             Class<?> klass = (Class<?>)raw;
-            if (List.class.isAssignableFrom(klass)) {
-                return DataType.list(getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
+            if (TypeMappings.mapsToList(klass)) {
+                return DataType.list(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
             }
-            if (Set.class.isAssignableFrom(klass)) {
-                return DataType.set(getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
+            if (TypeMappings.mapsToSet(klass)) {
+                return DataType.set(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
             }
-            if (Map.class.isAssignableFrom(klass)) {
-                return DataType.map(getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f), getSimpleType(ReflectionUtils.getParam(pt, 1, f.getName()), f));
+            if (TypeMappings.mapsToMap(klass)) {
+                return DataType.map(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f), TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 1, f.getName()), f));
             }
             throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", type, f.getName()));
         }
@@ -283,42 +279,7 @@ class ReflectionMapper<T> extends EntityMapper<T> {
         if (!(type instanceof Class))
             throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", type, f.getName()));
 
-        return getSimpleType((Class<?>)type, f);
-    }
-
-    static DataType getSimpleType(Class<?> klass, Field f) {
-        if (ByteBuffer.class.isAssignableFrom(klass))
-            return DataType.blob();
-
-        if (klass == int.class || Integer.class.isAssignableFrom(klass))
-                return DataType.cint();
-        if (klass == long.class || Long.class.isAssignableFrom(klass))
-            return DataType.bigint();
-        if (klass == float.class || Float.class.isAssignableFrom(klass))
-            return DataType.cfloat();
-        if (klass == double.class || Double.class.isAssignableFrom(klass))
-            return DataType.cdouble();
-        if (klass == boolean.class || Boolean.class.isAssignableFrom(klass))
-            return DataType.cboolean();
-
-        if (BigDecimal.class.isAssignableFrom(klass))
-            return DataType.decimal();
-        if (BigInteger.class.isAssignableFrom(klass))
-            return DataType.varint();
-
-        if (String.class.isAssignableFrom(klass))
-            return DataType.text();
-        if (InetAddress.class.isAssignableFrom(klass))
-            return DataType.inet();
-        if (Date.class.isAssignableFrom(klass))
-            return DataType.timestamp();
-        if (UUID.class.isAssignableFrom(klass))
-            return DataType.uuid();
-
-        if (Collection.class.isAssignableFrom(klass))
-            throw new IllegalArgumentException(String.format("Cannot map non-parametrized collection type %s for field %s; Please use a concrete type parameter", klass.getName(), f.getName()));
-
-        throw new IllegalArgumentException(String.format("Cannot map unknown class %s for field %s", klass.getName(), f));
+        return TypeMappings.getSimpleType((Class<?>)type, f);
     }
 
     private static class ReflectionFactory implements Factory {
@@ -350,15 +311,15 @@ class ReflectionMapper<T> extends EntityMapper<T> {
 
                     Class<?> klass = (Class<?>)raw;
                     Class<?> firstTypeParam = ReflectionUtils.getParam(pt, 0, field.getName());
-                    if (List.class.isAssignableFrom(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
+                    if (TypeMappings.mapsToList(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
                         UDTMapper<?> valueMapper = mappingManager.getUDTMapper(firstTypeParam);
                         return (ColumnMapper<T>) new UDTListMapper(field, position, pd, valueMapper);
                     }
-                    if (Set.class.isAssignableFrom(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
+                    if (TypeMappings.mapsToSet(klass) && firstTypeParam.isAnnotationPresent(UDT.class)) {
                         UDTMapper<?> valueMapper = mappingManager.getUDTMapper(firstTypeParam);
                         return (ColumnMapper<T>) new UDTSetMapper(field, position, pd, valueMapper);
                     }
-                    if (Map.class.isAssignableFrom(klass)) {
+                    if (TypeMappings.mapsToMap(klass)) {
                         Class<?> secondTypeParam = ReflectionUtils.getParam(pt, 1, field.getName());
                         UDTMapper<?> keyMapper = firstTypeParam.isAnnotationPresent(UDT.class) ? mappingManager.getUDTMapper(firstTypeParam) : null;
                         UDTMapper<?> valueMapper = secondTypeParam.isAnnotationPresent(UDT.class) ? mappingManager.getUDTMapper(secondTypeParam) : null;

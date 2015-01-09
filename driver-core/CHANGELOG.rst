@@ -4,6 +4,8 @@ CHANGELOG
 2.1.5:
 ------
 
+- [bug] Fix checks on mapped collection types (JAVA-612)
+
 
 2.1.4:
 ------
