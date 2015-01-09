@@ -385,7 +385,9 @@ class HostConnectionPool {
     private PooledConnection tryResurrectFromTrash() {
         long now = System.currentTimeMillis();
         for (PooledConnection connection : trash)
-            if (connection.maxIdleTime >= now && connection.state.compareAndSet(TRASHED, OPEN)) {
+            if (connection.maxIdleTime >= now
+                && connection.maxAvailableStreams() > MIN_AVAILABLE_STREAMS
+                && connection.state.compareAndSet(TRASHED, OPEN)) {
                 logger.trace("Resurrecting {}", connection);
                 trash.remove(connection);
                 return connection;
