@@ -411,14 +411,14 @@ class HostConnectionPool {
     void replaceDefunctConnection(final PooledConnection connection) {
         if (connection.state.compareAndSet(OPEN, GONE))
             open.decrementAndGet();
-        connections.remove(connection);
+        if (connections.remove(connection))
+            manager.blockingExecutor().submit(new Runnable() {
+                @Override
+                public void run() {
+                    addConnectionIfUnderMaximum();
+                }
+            });
         connection.closeAsync();
-        manager.blockingExecutor().submit(new Runnable() {
-            @Override
-            public void run() {
-                addConnectionIfUnderMaximum();
-            }
-        });
     }
 
     void cleanupIdleConnections(long now) {
