@@ -65,6 +65,7 @@ class HostConnectionPool {
 
     private final AtomicInteger scheduledForCreation = new AtomicInteger();
 
+    private volatile boolean isClosing;
     private final AtomicReference<CloseFuture> closeFuture = new AtomicReference<CloseFuture>();
 
     public HostConnectionPool(Host host, HostDistance hostDistance, SessionManager manager) throws ConnectionException, UnsupportedProtocolVersionException, ClusterNameMismatchException {
@@ -335,7 +336,7 @@ class HostConnectionPool {
                 break;
         }
 
-        if (isClosed()) {
+        if (isClosing) {
             open.decrementAndGet();
             return false;
         }
@@ -348,7 +349,7 @@ class HostConnectionPool {
             connections.add(newConnection);
 
             // We might have raced with pool shutdown since the last check; ensure the connection gets closed in case the pool did not do it.
-            if (isClosed() && !newConnection.isClosed()) {
+            if (isClosing && !newConnection.isClosed()) {
                 close(newConnection);
                 open.decrementAndGet();
                 return false;
@@ -452,7 +453,9 @@ class HostConnectionPool {
         if (future != null)
             return future;
 
-        // Wake up all threads that waits
+        isClosing = true;
+
+        // Wake up all threads that wait
         signalAllAvailableConnection();
 
         future = new CloseFuture.Forwarding(discardAvailableConnections());
