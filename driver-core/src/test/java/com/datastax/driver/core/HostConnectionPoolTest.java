@@ -293,6 +293,76 @@ public class HostConnectionPoolTest extends CCMBridge.PerClassSingleNodeCluster 
         assertThat(pool.connections).hasSize(1);
     }
 
+    /**
+     * Ensures that a trashed connection with insufficient stream ids that has not been timed out should not be
+     * resurrected into the connection pool if borrowConnection is called and a new connection is needed.
+     *
+     * @since 2.0.10, 2.1.5
+     * @test_category connection:connection_pool
+     */
+    @Test(groups = "short")
+    public void should_not_resurrect_connection_with_insufficient_streams()
+            throws ConnectionException, TimeoutException, InterruptedException {
+        HostConnectionPool pool = createPool(1, 2);
+        PooledConnection core = pool.connections.get(0);
+
+        for (int i = 0; i < 128; i++)
+            assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(core);
+
+        TimeUnit.MILLISECONDS.sleep(100);
+        assertThat(pool.connections).hasSize(2);
+
+        // Grab the new non-core connection and replace it with a spy.
+        PooledConnection extra1 = spy(pool.connections.get(1));
+        pool.connections.set(1, extra1);
+
+        assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(extra1);
+        pool.returnConnection(extra1);
+        assertThat(pool.connections).hasSize(1);
+
+        // stub the maxAvailableStreams method to return 0, indicating there are no remaining streams.
+        // this should cause the connection to not be revived from the trash.
+        doReturn(0).when(extra1).maxAvailableStreams();
+
+        // extra1 is now in the trash, core still full
+        // Borrowing again should create a new connection.
+        assertThat(pool.borrowConnection(100, MILLISECONDS)).isNotEqualTo(extra1);
+        assertThat(pool.connections).hasSize(2);
+    }
+
+    /**
+     * Ensures that trashed connections are closed when the connection pool they belonged to are closed.
+     *
+     * @since 2.0.10, 2.1.5
+     * @test_category connection:connection_pool
+     */
+    @Test(groups = "short")
+    public void should_close_trashed_connections_when_closing_pool()
+            throws ConnectionException, TimeoutException, InterruptedException, ExecutionException {
+        HostConnectionPool pool = createPool(1, 2);
+        PooledConnection core = pool.connections.get(0);
+
+        for (int i = 0; i < 128; i++)
+            assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(core);
+
+        TimeUnit.MILLISECONDS.sleep(100);
+        assertThat(pool.connections).hasSize(2);
+        PooledConnection extra1 = pool.connections.get(1);
+
+        assertThat(pool.borrowConnection(100, MILLISECONDS)).isEqualTo(extra1);
+        pool.returnConnection(extra1);
+        assertThat(pool.connections).hasSize(1);
+
+        // While the connection is trashed, it should not be closed.
+        assertThat(extra1.isClosed()).isFalse();
+
+        pool.closeAsync().get(1, TimeUnit.SECONDS);
+
+        // Ensure both connections were closed.
+        assertThat(core.isClosed()).isTrue();
+        assertThat(extra1.isClosed()).isTrue();
+    }
+
     private HostConnectionPool createPool(int coreConnections, int maxConnections) {
         cluster.getConfiguration().getPoolingOptions()
             .setCoreConnectionsPerHost(HostDistance.LOCAL, coreConnections)
