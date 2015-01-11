@@ -96,39 +96,39 @@ class AnnotationChecks {
 
     static void checkFrozenTypes(Field field) {
         Type javaType = field.getGenericType();
-        CQLType cqlType = getCQLType(field);
-        checkFrozenTypes(javaType, cqlType);
+        DeclaredFrozenType declaredFrozenType = getDeclaredFrozenType(field);
+        checkFrozenTypes(javaType, declaredFrozenType);
     }
 
-    // Builds a CQLType hierarchy based on the @Frozen* annotations on a field.
-    private static CQLType getCQLType(Field field) {
+    // Builds a DeclaredFrozenType hierarchy based on the @Frozen* annotations on a field.
+    private static DeclaredFrozenType getDeclaredFrozenType(Field field) {
         Frozen frozen = field.getAnnotation(Frozen.class);
         if (frozen != null)
-            return CQLType.parse(frozen.value());
+            return DeclaredFrozenType.parse(frozen.value());
 
         boolean frozenKey = field.getAnnotation(FrozenKey.class) != null;
         boolean frozenValue = field.getAnnotation(FrozenValue.class) != null;
         if (frozenKey && frozenValue)
-            return CQLType.FROZEN_MAP_KEY_AND_VALUE;
+            return DeclaredFrozenType.FROZEN_MAP_KEY_AND_VALUE;
         else if (frozenKey)
-            return CQLType.FROZEN_MAP_KEY;
+            return DeclaredFrozenType.FROZEN_MAP_KEY;
         else if (frozenValue && field.getType().equals(Map.class))
-            return CQLType.FROZEN_MAP_VALUE;
+            return DeclaredFrozenType.FROZEN_MAP_VALUE;
         else if (frozenValue)
-            return CQLType.FROZEN_ELEMENT;
+            return DeclaredFrozenType.FROZEN_ELEMENT;
         else
-            return CQLType.UNFROZEN_SIMPLE;
+            return DeclaredFrozenType.UNFROZEN_SIMPLE;
     }
 
     // Traverses the Java type and CQLType hierarchies in parallel, to ensure that all
     // Java types mapping to UDTs, tuples and nested collections are marked as frozen in the CQLType.
     // We accept that parts of the CQLType be null, in which case the matching parts
     // in the Java type will be considered as not frozen.
-    private static void checkFrozenTypes(Type javaType, CQLType cqlType) {
-        checkFrozenTypes(javaType, cqlType, true);
+    private static void checkFrozenTypes(Type javaType, DeclaredFrozenType declaredFrozenType) {
+        checkFrozenTypes(javaType, declaredFrozenType, true);
     }
 
-    private static void checkFrozenTypes(Type javaType, CQLType cqlType, boolean isRoot) {
+    private static void checkFrozenTypes(Type javaType, DeclaredFrozenType declaredFrozenType, boolean isRoot) {
         Class<?> javaClass;
         Type[] childrenJavaTypes;
         if (javaType instanceof Class<?>) {
@@ -141,16 +141,16 @@ class AnnotationChecks {
         } else
             throw new IllegalArgumentException("unexpected type: " + javaType);
 
-        boolean frozen = (cqlType != null && cqlType.frozen);
+        boolean frozen = (declaredFrozenType != null && declaredFrozenType.frozen);
         checkValidFrozen(javaClass, isRoot, frozen);
 
         if (childrenJavaTypes != null) {
             for (int i = 0; i < childrenJavaTypes.length; i++) {
                 Type childJavaType = childrenJavaTypes[i];
-                CQLType childCQLType = null;
-                if (cqlType != null && cqlType.subTypes != null && cqlType.subTypes.size() > i)
-                    childCQLType = cqlType.subTypes.get(i);
-                checkFrozenTypes(childJavaType, childCQLType, false);
+                DeclaredFrozenType childDeclaredFrozenType = null;
+                if (declaredFrozenType != null && declaredFrozenType.subTypes != null && declaredFrozenType.subTypes.size() > i)
+                    childDeclaredFrozenType = declaredFrozenType.subTypes.get(i);
+                checkFrozenTypes(childJavaType, childDeclaredFrozenType, false);
             }
         }
     }
