@@ -172,88 +172,12 @@ class ReflectionMapper<T> extends EntityMapper<T> {
         @SuppressWarnings("unchecked")
         public Object getValue(T entity) {
             Object valueWithEntities = super.getValue(entity);
-            return (T)convertEntitiesToUDTs(valueWithEntities, extractedType);
+            return (T)UDTMapper.convertEntitiesToUDTs(valueWithEntities, extractedType);
         }
 
         @Override
         public void setValue(Object entity, Object valueWithUDTValues) {
-            super.setValue(entity, convertUDTsToEntities(valueWithUDTValues, extractedType));
-        }
-
-        @SuppressWarnings("unchecked")
-        private Object convertEntitiesToUDTs(Object value, ExtractedType type) {
-            if (!type.containsMappedUDT)
-                return value;
-
-            if (type.udtMapper != null)
-                return type.udtMapper.toUDT(value);
-
-            if (type.dataType.getName() == DataType.Name.LIST) {
-                ExtractedType elementType = type.childTypes.get(0);
-                List<Object> result = new ArrayList<Object>();
-                for (Object element : (List<Object>)value)
-                    result.add(convertEntitiesToUDTs(element, elementType));
-                return result;
-            }
-
-            if (type.dataType.getName() == DataType.Name.SET) {
-                ExtractedType elementType = type.childTypes.get(0);
-                Set<Object> result = new LinkedHashSet<Object>();
-                for (Object element : (Set<Object>)value)
-                    result.add(convertEntitiesToUDTs(element, elementType));
-                return result;
-            }
-
-            if (type.dataType.getName() == DataType.Name.MAP) {
-                ExtractedType keyType = type.childTypes.get(0);
-                ExtractedType valueType = type.childTypes.get(1);
-                Map<Object, Object> result = new LinkedHashMap<Object, Object>();
-                for (Map.Entry<Object, Object> entry : ((Map<Object, Object>)value).entrySet())
-                    result.put(
-                        convertEntitiesToUDTs(entry.getKey(), keyType),
-                        convertEntitiesToUDTs(entry.getValue(), valueType)
-                    );
-                return result;
-            }
-            throw new IllegalArgumentException("Error converting " + value);
-        }
-
-        @SuppressWarnings("unchecked")
-        private Object convertUDTsToEntities(Object value, ExtractedType type) {
-            if (!type.containsMappedUDT)
-                return value;
-
-            if (type.udtMapper != null)
-                return type.udtMapper.toEntity((UDTValue)value);
-
-            if (type.dataType.getName() == DataType.Name.LIST) {
-                ExtractedType elementType = type.childTypes.get(0);
-                List<Object> result = new ArrayList<Object>();
-                for (Object element : (List<Object>)value)
-                    result.add(convertUDTsToEntities(element, elementType));
-                return result;
-            }
-
-            if (type.dataType.getName() == DataType.Name.SET) {
-                ExtractedType elementType = type.childTypes.get(0);
-                Set<Object> result = new LinkedHashSet<Object>();
-                for (Object element : (Set<Object>)value)
-                    result.add(convertUDTsToEntities(element, elementType));
-                return result;
-            }
-
-            if (type.dataType.getName() == DataType.Name.MAP) {
-                ExtractedType keyType = type.childTypes.get(0);
-                ExtractedType valueType = type.childTypes.get(1);
-                Map<Object, Object> result = new LinkedHashMap<Object, Object>();
-                for (Map.Entry<Object, Object> entry : ((Map<Object, Object>)value).entrySet())
-                    result.put(
-                        convertUDTsToEntities(entry.getKey(), keyType),
-                        convertUDTsToEntities(entry.getValue(), valueType)
-                    );
-                return result;
-            }
-            throw new IllegalArgumentException("Error converting " + value);
+            super.setValue(entity, UDTMapper.convertUDTsToEntities(valueWithUDTValues, extractedType));
         }
     }
 
@@ -268,13 +192,13 @@ class ReflectionMapper<T> extends EntityMapper<T> {
 
             Class<?> klass = (Class<?>)raw;
             if (TypeMappings.mapsToList(klass)) {
-                return DataType.list(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
+                return DataType.list(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f.getName()));
             }
             if (TypeMappings.mapsToSet(klass)) {
-                return DataType.set(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f));
+                return DataType.set(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f.getName()));
             }
             if (TypeMappings.mapsToMap(klass)) {
-                return DataType.map(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f), TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 1, f.getName()), f));
+                return DataType.map(TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 0, f.getName()), f.getName()), TypeMappings.getSimpleType(ReflectionUtils.getParam(pt, 1, f.getName()), f.getName()));
             }
             throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", type, f.getName()));
         }
@@ -282,7 +206,7 @@ class ReflectionMapper<T> extends EntityMapper<T> {
         if (!(type instanceof Class))
             throw new IllegalArgumentException(String.format("Cannot map class %s for field %s", type, f.getName()));
 
-        return TypeMappings.getSimpleType((Class<?>)type, f);
+        return TypeMappings.getSimpleType((Class<?>)type, f.getName());
     }
 
     private static class ReflectionFactory implements Factory {
@@ -307,7 +231,7 @@ class ReflectionMapper<T> extends EntityMapper<T> {
                 }
 
                 if (field.getGenericType() instanceof ParameterizedType) {
-                    ExtractedType extractedType = new ExtractedType(field.getGenericType(), field, mappingManager);
+                    ExtractedType extractedType = ExtractedType.from(field, mappingManager);
                     if (extractedType.containsMappedUDT) {
                         // We need a specialized mapper to convert UDT instances in the hierarchy.
                         return (ColumnMapper<T>)new NestedUDTMapper(field, position, pd, extractedType);

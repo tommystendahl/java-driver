@@ -18,6 +18,7 @@ package com.datastax.driver.mapping;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -160,18 +161,27 @@ class MethodMapper {
         // We'll only set one of the other. If paramName is null, then paramIdx is used.
         private final String paramName;
         private final int paramIdx;
+        private final DataType dataType;
 
-        public ParamMapper(String paramName, int paramIdx) {
+        public ParamMapper(String paramName, int paramIdx, DataType dataType) {
             this.paramName = paramName;
             this.paramIdx = paramIdx;
+            this.dataType = dataType;
+        }
+
+        public ParamMapper(String paramName, int paramIdx) {
+            this(paramName, paramIdx, null);
         }
 
         void setValue(BoundStatement boundStatement, Object arg, ProtocolVersion protocolVersion) {
+            ByteBuffer serializedArg = (dataType == null)
+                ? DataType.serializeValue(arg, protocolVersion)
+                : dataType.serialize(arg, protocolVersion);
             if (arg != null) {
                 if (paramName == null)
-                    boundStatement.setBytesUnsafe(paramIdx, DataType.serializeValue(arg, protocolVersion));
+                    boundStatement.setBytesUnsafe(paramIdx, serializedArg);
                 else
-                    boundStatement.setBytesUnsafe(paramName, DataType.serializeValue(arg, protocolVersion));
+                    boundStatement.setBytesUnsafe(paramName, serializedArg);
             }
         }
     }
@@ -192,53 +202,22 @@ class MethodMapper {
         }
     }
 
-    static class UDTListParamMapper<V> extends ParamMapper {
-        private final UDTMapper<V> valueMapper;
+    /**
+     * Maps a nested collection which has a mapped UDT somewhere in the hierarchy.
+     */
+    static class NestedUDTParamMapper extends ParamMapper {
+        private final ExtractedType extractedType;
 
-        UDTListParamMapper(String paramName, int paramIdx, UDTMapper<V> valueMapper) {
+        NestedUDTParamMapper(String paramName, int paramIdx, ExtractedType extractedType) {
             super(paramName, paramIdx);
-            this.valueMapper = valueMapper;
+            this.extractedType = extractedType;
         }
 
         @Override
         void setValue(BoundStatement boundStatement, Object arg, ProtocolVersion protocolVersion) {
-            @SuppressWarnings("unchecked")
-            List<V> entities = (List<V>) arg;
-            super.setValue(boundStatement, valueMapper.toUDTValues(entities), protocolVersion);
-        }
-    }
-
-    static class UDTSetParamMapper<V> extends ParamMapper {
-        private final UDTMapper<V> valueMapper;
-
-        UDTSetParamMapper(String paramName, int paramIdx, UDTMapper<V> valueMapper) {
-            super(paramName, paramIdx);
-            this.valueMapper = valueMapper;
-        }
-
-        @Override
-        void setValue(BoundStatement boundStatement, Object arg, ProtocolVersion protocolVersion) {
-            @SuppressWarnings("unchecked")
-            Set<V> entities = (Set<V>) arg;
-            super.setValue(boundStatement, valueMapper.toUDTValues(entities), protocolVersion);
-        }
-    }
-
-    static class UDTMapParamMapper<K, V> extends ParamMapper {
-        private final UDTMapper<K> keyMapper;
-        private final UDTMapper<V> valueMapper;
-
-        UDTMapParamMapper(String paramName, int paramIdx, UDTMapper<K> keyMapper, UDTMapper<V> valueMapper) {
-            super(paramName, paramIdx);
-            this.keyMapper = keyMapper;
-            this.valueMapper = valueMapper;
-        }
-
-        @Override
-        void setValue(BoundStatement boundStatement, Object arg, ProtocolVersion protocolVersion) {
-            @SuppressWarnings("unchecked")
-            Map<K, V> entities = (Map<K, V>) arg;
-            super.setValue(boundStatement, UDTMapper.toUDTValues(entities, keyMapper, valueMapper), protocolVersion);
+            super.setValue(boundStatement,
+                UDTMapper.convertEntitiesToUDTs(arg, extractedType),
+                protocolVersion);
         }
     }
 

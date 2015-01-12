@@ -38,21 +38,31 @@ class ExtractedType {
     final UDTMapper udtMapper;
     final List<ExtractedType> childTypes;
 
-    ExtractedType(Type javaType, Field rootField, MappingManager mappingManager) {
+    static ExtractedType from(Field field, MappingManager mappingManager) {
+        String name = String.format("field %s of class %s", field.getName(), field.getDeclaringClass().getName());
+        return new ExtractedType(field.getGenericType(), name, field.getGenericType(), mappingManager);
+    }
+
+    static ExtractedType from(String className, String methodName, int idx, String paramName, Type paramType, MappingManager mappingManager) {
+        String name = String.format("parameter %s of %s.%s", paramName == null ? idx : paramName, className, methodName);
+        return new ExtractedType(paramType, name, paramType, mappingManager);
+    }
+
+    private ExtractedType(Type javaType, String rootName, Type rootType, MappingManager mappingManager) {
         if (javaType instanceof ParameterizedType) {
             ParameterizedType pt = (ParameterizedType)javaType;
             Type raw = pt.getRawType();
             if (!(raw instanceof Class))
-                throw fail(rootField);
+                throw fail(rootName, rootType);
 
             Class<?> klass = (Class<?>)raw;
             if (!TypeMappings.mapsToCollection(klass))
-                throw fail(rootField);
+                throw fail(rootName, rootType);
 
             childTypes = Lists.newArrayList();
             boolean childrenContainMappedUDT = false;
             for (Type childJavaType : pt.getActualTypeArguments()) {
-                ExtractedType child = new ExtractedType(childJavaType, rootField, mappingManager);
+                ExtractedType child = new ExtractedType(childJavaType, rootName, rootType, mappingManager);
                 childrenContainMappedUDT |= child.containsMappedUDT;
                 childTypes.add(child);
             }
@@ -66,7 +76,7 @@ class ExtractedType {
             } else if (TypeMappings.mapsToMap(klass)) {
                 dataType = DataType.map(childTypes.get(0).dataType, childTypes.get(1).dataType);
             } else
-                throw fail(rootField);
+                throw fail(rootName, rootType);
         } else if (javaType instanceof Class) {
             Class<?> klass = (Class<?>)javaType;
             if (TypeMappings.isMappedUDT(klass)) {
@@ -77,15 +87,15 @@ class ExtractedType {
             } else {
                 containsMappedUDT = false;
                 udtMapper = null;
-                dataType = TypeMappings.getSimpleType(klass, rootField);
+                dataType = TypeMappings.getSimpleType(klass, rootName);
                 childTypes = Collections.emptyList();
             }
         } else {
-            throw fail(rootField);
+            throw fail(rootName, rootType);
         }
     }
 
-    private IllegalArgumentException fail(Field rootField) {
-        return new IllegalArgumentException(String.format("Cannot map class %s for field %s", rootField, rootField.getName()));
+    private IllegalArgumentException fail(String rootName, Type rootType) {
+        return new IllegalArgumentException(String.format("Cannot map class %s for %s", rootType, rootName));
     }
 }

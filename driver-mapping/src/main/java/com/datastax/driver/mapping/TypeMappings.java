@@ -32,7 +32,7 @@ import com.datastax.driver.mapping.annotations.UDT;
  */
 class TypeMappings {
 
-    static DataType getSimpleType(Class<?> klass, Field f) {
+    static DataType getSimpleType(Class<?> klass, String fieldName) {
         if (ByteBuffer.class.isAssignableFrom(klass))
             return DataType.blob();
 
@@ -62,9 +62,9 @@ class TypeMappings {
             return DataType.uuid();
 
         if (Collection.class.isAssignableFrom(klass))
-            throw new IllegalArgumentException(String.format("Cannot map non-parametrized collection type %s for field %s; Please use a concrete type parameter", klass.getName(), f.getName()));
+            throw new IllegalArgumentException(String.format("Cannot map non-parametrized collection type %s for field %s; Please use a concrete type parameter", klass.getName(), fieldName));
 
-        throw new IllegalArgumentException(String.format("Cannot map unknown class %s for field %s", klass.getName(), f));
+        throw new IllegalArgumentException(String.format("Cannot map unknown class %s for field %s", klass.getName(), fieldName));
     }
 
     static boolean mapsToList(Class<?> klass) {

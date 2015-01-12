@@ -79,7 +79,7 @@ public class ExtractedTypeTest {
 
     private ExtractedType newInstanceForField(String name) throws NoSuchFieldException {
         Field field = ExtractedTypeTest.class.getDeclaredField(name);
-        return new ExtractedType(field.getGenericType(), field, manager);
+        return ExtractedType.from(field, manager);
     }
 
     @UDT(name = "mock")
