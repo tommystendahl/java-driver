@@ -38,6 +38,8 @@ public interface RetryPolicy {
      * <li>IGNORE: no retry should be attempted and the exception should be
      * ignored. In that case, the operation that triggered the Cassandra
      * exception will return an empty result set.</li>
+     * <li>WAIT: If there is another ongoing execution we ignore this response and
+     * wait for the next one, if there are no other ongoing executions we do a RETHROW</li>
      * </ul>
      */
     class RetryDecision {
@@ -49,7 +51,7 @@ public interface RetryPolicy {
          * The types of retry decisions.
          */
         public enum Type {
-            RETRY, RETHROW, IGNORE
+            RETRY, RETHROW, IGNORE, WAIT
         }
 
         private final Type type;
@@ -166,6 +168,8 @@ public interface RetryPolicy {
                     return "Rethrow";
                 case IGNORE:
                     return "Ignore";
+                case WAIT:
+                    return "Wait";
             }
             throw new AssertionError();
         }

@@ -405,7 +405,8 @@ class RequestHandler {
             return decision;
         }
 
-        private void processRetryDecision(RetryPolicy.RetryDecision retryDecision, Connection connection, Exception exceptionToReport) {
+        private boolean processRetryDecision(RetryPolicy.RetryDecision retryDecision, Connection connection, Exception exceptionToReport) {
+            boolean isWaiting = false;
             switch (retryDecision.getType()) {
                 case RETRY:
                     retriesByPolicy++;
@@ -418,6 +419,11 @@ class RequestHandler {
                         logError(connection.address, exceptionToReport);
                     retry(retryDecision.isRetryCurrent(), retryDecision.getRetryConsistencyLevel());
                     break;
+                case WAIT:
+                    for (SpeculativeExecution execution : runningExecutions)
+                        if (execution != this && execution.queryStateRef.get().inProgress)
+                            isWaiting = true;
+                            break;
                 case RETHROW:
                     setFinalException(connection, exceptionToReport);
                     break;
@@ -427,6 +433,7 @@ class RequestHandler {
                     setFinalResult(connection, new Responses.Result.Void());
                     break;
             }
+            return isWaiting;
         }
 
         private void retry(final boolean retryCurrent, ConsistencyLevel newConsistencyLevel) {
@@ -494,6 +501,7 @@ class RequestHandler {
                 return;
             }
 
+            boolean isWaiting = false;
             Host queriedHost = current;
             Exception exceptionToReport = null;
             try {
@@ -632,7 +640,7 @@ class RequestHandler {
                         if (retry == null)
                             setFinalResult(connection, response);
                         else {
-                            processRetryDecision(retry, connection, exceptionToReport);
+                            isWaiting = processRetryDecision(retry, connection, exceptionToReport);
                         }
                         break;
                     default:
@@ -644,7 +652,7 @@ class RequestHandler {
                 exceptionToReport = e;
                 setFinalException(connection, e);
             } finally {
-                if (queriedHost != null && statement != Statement.DEFAULT) {
+                if (queriedHost != null && statement != Statement.DEFAULT && isWaiting == false) {
                     manager.cluster.manager.reportQuery(queriedHost, statement, exceptionToReport, latency);
                 }
             }
@@ -730,6 +738,7 @@ class RequestHandler {
 
         @Override
         public void onException(Connection connection, Exception exception, long latency, int retryCount) {
+            boolean isWaiting = false;
             QueryState queryState = queryStateRef.get();
             if (!queryState.isInProgressAt(retryCount) ||
                     !queryStateRef.compareAndSet(queryState, queryState.complete())) {
@@ -744,7 +753,7 @@ class RequestHandler {
 
                 if (exception instanceof ConnectionException) {
                     RetryPolicy.RetryDecision decision = computeRetryDecisionOnRequestError((ConnectionException) exception);
-                    processRetryDecision(decision, connection, exception);
+                    isWaiting = processRetryDecision(decision, connection, exception);
                     return;
                 }
                 setFinalException(connection, exception);
@@ -752,13 +761,14 @@ class RequestHandler {
                 // This shouldn't happen, but if it does, we want to signal the callback, not let it hang indefinitely
                 setFinalException(null, new DriverInternalError("An unexpected error happened while handling exception " + exception, e));
             } finally {
-                if (queriedHost != null && statement != Statement.DEFAULT)
+                if (queriedHost != null && statement != Statement.DEFAULT && isWaiting == false)
                     manager.cluster.manager.reportQuery(queriedHost, statement, exception, latency);
             }
         }
 
         @Override
         public boolean onTimeout(Connection connection, long latency, int retryCount) {
+            boolean isWaiting = false;
             QueryState queryState = queryStateRef.get();
             if (!queryState.isInProgressAt(retryCount) ||
                     !queryStateRef.compareAndSet(queryState, queryState.complete())) {
@@ -775,12 +785,12 @@ class RequestHandler {
                 connection.release();
 
                 RetryPolicy.RetryDecision decision = computeRetryDecisionOnRequestError(timeoutException);
-                processRetryDecision(decision, connection, timeoutException);
+                isWaiting = processRetryDecision(decision, connection, timeoutException);
             } catch (Exception e) {
                 // This shouldn't happen, but if it does, we want to signal the callback, not let it hang indefinitely
                 setFinalException(null, new DriverInternalError("An unexpected error happened while handling timeout", e));
             } finally {
-                if (queriedHost != null && statement != Statement.DEFAULT)
+                if (queriedHost != null && statement != Statement.DEFAULT && isWaiting == false)
                     manager.cluster.manager.reportQuery(queriedHost, statement, timeoutException, latency);
             }
             return true;
